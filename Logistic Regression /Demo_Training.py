@@ -14,20 +14,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression 
 import time
 import warnings
 import os
 import warnings
-
-# ----------------------------------------------------------------------------
-"""Load datadset"""
-# ----------------------------------------------------------------------------
-gt ='/Users/panda/Documents/APM/RiskScorePrediction /Dataset/diabetes_prediction_dataset.csv'
-df = pd.read_csv(gt)
-
-# # #Checking for Null values
-# print("Missing values in the table:\n")
-# print(df.isna().sum())
 
 ## Level of impact of diabetes are
 # Blood Glucose Level (most important), above 100 - 125 mg/dL is prediabetes, 126 is diabetes, less than 100 is normal.
@@ -40,82 +31,102 @@ df = pd.read_csv(gt)
 # Smoking History – Smoking increases insulin resistance, indirectly contributing to diabetes.
 # Gender – May have a minor effect, but generally less predictive than the others.
 
-#Check calculation involving
-# print(df.describe())
-# max_column = df['HbA1c_level'].max()
-# min_column = df['HbA1c_level'].min()
-# print(f'Max value of HbA1c Level is {max_column} and min value is {min_column}')
-# print(' ')
 
 # ----------------------------------------------------------------------------
 """Preprocessing"""
 # ----------------------------------------------------------------------------
-def preprocess(df):
+def preprocess(df, ):
     #Drop rows with missing values
-    # df = df.dropna() 
+    df = df.dropna() 
 
     #Drop duplicate
-    # df = df.drop_duplicates()
-    # print(f"Removed {df.duplicated().sum()} duplicate rows")
+    df = df.drop_duplicates()
+    print(f"Removed {df.duplicated().sum()} duplicate rows")
 
     """Encoding -- gender, and smoking history since they are numerical data"""
     le = LabelEncoder()
     df['gender'] = le.fit_transform(df['gender'])
     df['smoking_history'] = le.fit_transform(df['smoking_history'])
+    
+    #Age bins 
+    bins = [0, 20,40,60, np.inf]
+    labels = ['0-20', '21-40', '41-60', '61+']
+    df['age_groups'] = pd.cut(df['age'], bins=bins, labels=labels)
+    df = df.drop('age', axis = 1)
 
-    """Scale numerical features"""
-    scaler = StandardScaler()
-    numerical_cols = ['age', 'bmi', 'HbA1c_level', 'blood_glucose_level']
-    df[numerical_cols] = scaler.fit_transform(df[numerical_cols])
-    # df[numerical_cols] = scaler.fit_transform(df[numerical_cols])
-    return df,scaler
+    #Numerical features
+    numerical_cols = ['bmi', 'HbA1c_level', 'blood_glucose_level']
+    categorical_cols = ['hypertension', 'heart_disease', 'smoking_history', 'gender', 'age_group']
 
+    #Check for NaNs
+    print("Missing values before imputation:\n", df.isna().sum())
+    
+    #Handle for Nans
+
+
+# ----------------------------------------------------------------------------
+"""Learning rate"""
+# ----------------------------------------------------------------------------
+# def learning_rate(train_sz, train_scores, val_scores,output_dir ='.' ):
+#     "Observe for each time that the model generate"
+#     print("Train size: ", train_sz)
+#     print("Train scores: ", train_scores)
+#     print("Validation scores: ", val_scores)
+#     print(" ")
+
+#     plt.figure(figsize=(12,6))
+#     plt.plot(train_sz, train_scores, label='Training Score', marker='o')
+#     plt.plot(train_sz, val_scores, label='Validation Score', marker='-')
+#     plt.title('Learning Curve for Diabetes Prediction Over Time')
+#     plt.xlabel('Training')
+#     plt.ylabel('Accuracy Score')
+#     plt.legend(loc = 'best') #loc is for legend, best is for best position 
+#     plt.grid()
+#     plt.savefig(output_dir + '/learning_curve.png'))
+#     plt.show()
 
 # ----------------------------------------------------------------------------
 """Building model"""
 # ----------------------------------------------------------------------------
-def train_model(train_dir,val_dir,output_dir='.'):
-    #Seperate data into features and target
-    #Features
-    feature_col =[ 'hypertension', 'smoking_history',
-        'bmi', 'HbA1c_level', 'blood_glucose_level'
-    ]
+def train_model(train_dir, val_dir, test_dir, output_dir='.'):
+    #Load data 
     train_df = pd.read_csv(train_dir)
     val_df = pd.read_csv(val_dir)
+    test_df = pd.read_csv(test_dir)
 
-    X_train = train_df[feature_col]
-    Y_train = train_df['diabetes']
+    #Features are all comlumns impact to the target 
+    feature_cols = ['hypertension', 'heart_disease', 'smoking_history', 
+                'bmi', 'HbA1c_level', 'blood_glucose_level', 'gender', 'age_group']
 
-    #Target
-    y_train = val_df[feature_col]
-    y_val = val_df['diabetes']
+    #Preprocess data with imputation
+ 
 
-    #Preprocessing features
-    X_train_processed, scaler = preprocess (X_train, feature_col)
-    X_val_processed, _ = preprocess (y_train, feature_col)
-def learning_curve(train)
 
 # Main script
-# if __name__ == '__main__':
-#     # ----------------------------------------------------------------------------
-#     # Set up data
-#     # ----------------------------------------------------------------------------
-#     start_time = time.time()
-#     start_time_str = time.strftime("%Y%m%d_%H%M", time.localtime(start_time))
-#     print('-------------------------------------')  
-#     print('Running main script at', start_time_str, '\n')
+if __name__ == '__main__':
+    # ----------------------------------------------------------------------------
+    # Set up data
+    # ----------------------------------------------------------------------------
+    start_time = time.time()
+    start_time_str = time.strftime("%Y%m%d_%H%M", time.localtime(start_time))
+    print('-------------------------------------')  
+    print('Running main script at', start_time_str, '\n')
     
-#     # gt ='/Users/panda/Documents/APM/RiskScorePrediction /Dataset/diabetes_prediction_dataset.csv'
-#     # df = pd.read_csv(gt)
+    gt ='/Users/panda/Documents/APM/RiskScorePrediction /Data/diabetes_prediction_dataset.csv'
+    df = pd.read_csv(gt)
+    
 
-#     # # #Display info of the tbl
-#     print("All the categories in the table \n")
-#     print(df.info())
-#     print('-------------------------------------')  
+    # # #Display info of the tbl
+    print("All the categories in the table \n")
+    print(df.info())
+    print('-------------------------------------')  
+    print(" ")
+    #Display missing values or having Nans
+    print("Missing values in the table \n", df.isnull().sum())
+    print('-------------------------------------') 
 
-
-#    train_dir = '/Users/panda/Documents/APM/RiskScorePrediction /Data/Train'
-#    val_dir = '/Users/panda/Documents/APM/RiskScorePrediction /Data/Val'
-#    output_dir = '/Users/panda/Documents/APM/RiskScorePrediction /Output'
+    train_dir = '/Users/panda/Documents/APM/Testing/Train/Train_data.csv'
+    val_dir = '/Users/panda/Documents/APM/Testing/Val/Val_data.csv'
+    output_dir = '/Users/panda/Documents/APM/RiskScorePrediction/Output'
 
 #    train_model(train_dir,val_dir,output_dir)
