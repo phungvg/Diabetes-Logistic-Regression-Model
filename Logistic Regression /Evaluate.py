@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, classification_report 
 import matplotlib.pyplot as plt
 import seaborn as sns
 # import joblib
@@ -15,6 +15,7 @@ def confusion_matrix(cm,title):
     plt.savefig ('Confusion_Matrix.png')
     plt.show()
 
+def predictions()
 """Load the model"""
 def evaluate_model():
     test_df = pd.read_csv('/Users/panda/Documents/APM/RiskScorePrediction /Data/Test/Test_data.csv')

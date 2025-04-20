@@ -1,24 +1,23 @@
 """Workflow
-1. Load dataset from Kaggle(.csv files)
-2. Preprocess(handle missing values, many duplicate info, scale numerical data,mea,median, remove data if needed)
-3. Split into training, var,test sets (70,15,15 -- range can be fixed)
-4. Training model
-5. Inference (set up, loading, get data, target,post process), goal is to predict risk score for testing
-6. Evaluate model peformance, plot the result with actual vs predicted
+Dataset from Kaggle(.csv files)
+Split into training, var,test sets (70,15,15 -- range can be fixed)
+
 """
 ##Demo Training for Diabetes Training Model 
 
-import pandas as pd 
-import numpy as np 
-import matplotlib.pyplot as plt 
-import seaborn as sns
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression 
 import time
-import warnings
-import os
-import warnings
+import pandas as pd
+
+from sklearn.pipeline import Pipeline # To chain preprocessing and modeling steps
+from sklearn.compose import ColumnTransformer # ColumnTransformer is for handling different types of data
+from sklearn.impute import SimpleImputer # SimpleImputer is for handling missing values
+# OneHotEncoder is for categorical data, StandardScaler is for numerical data to be scaled
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder 
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GridSearchCV # GridSearchCV is for hyperparameter tuning
+from sklearn.metrics import accuracy_score, classification_report 
+
+
 
 ## Level of impact of diabetes are
 # Blood Glucose Level (most important), above 100 - 125 mg/dL is prediabetes, 126 is diabetes, less than 100 is normal.
@@ -45,64 +44,86 @@ def preprocess(df):
 
     """Encoding -- gender, and smoking history since they are numerical data"""
     le = LabelEncoder()
-    df['gender'] = le.fit_transform(df['gender'])
-    df['smoking_history'] = le.fit_transform(df['smoking_history'])
+    df['gender'] = le.fit_transform(df['gender']) #male/female -> 0/1
+    df['smoking_history'] = le.fit_transform(df['smoking_history']) # categories → numeric codes
     
     #Age bins 
-    bins = [0, 20,40,60, np.inf]
+    bins = [0, 20,40,60, 80] #Age range
     labels = ['0-20', '21-40', '41-60', '61+']
     df['age_groups'] = pd.cut(df['age'], bins=bins, labels=labels)
     df = df.drop('age', axis = 1)
 
-    #Numerical features
-    numerical_cols = ['bmi', 'HbA1c_level', 'blood_glucose_level']
-    categorical_cols = ['hypertension', 'heart_disease', 'smoking_history', 'gender', 'age_group']
-
     #Check for NaNs
     print("Missing values before imputation:\n", df.isna().sum())
     
-    #Handle for Nans
-
     return df
 
-# ----------------------------------------------------------------------------
-"""Learning rate"""
-# ----------------------------------------------------------------------------
-# def learning_rate(train_sz, train_scores, val_scores,output_dir ='.' ):
-#     "Observe for each time that the model generate"
-#     print("Train size: ", train_sz)
-#     print("Train scores: ", train_scores)
-#     print("Validation scores: ", val_scores)
-#     print(" ")
 
-#     plt.figure(figsize=(12,6))
-#     plt.plot(train_sz, train_scores, label='Training Score', marker='o')
-#     plt.plot(train_sz, val_scores, label='Validation Score', marker='-')
-#     plt.title('Learning Curve for Diabetes Prediction Over Time')
-#     plt.xlabel('Training')
-#     plt.ylabel('Accuracy Score')
-#     plt.legend(loc = 'best') #loc is for legend, best is for best position 
-#     plt.grid()
-#     plt.savefig(output_dir + '/learning_curve.png'))
-#     plt.show()
+# ----------------------------------------------------------------------------
+"""Load data"""
+# ----------------------------------------------------------------------------
+def load_data(path):
+    df = pd.read_csv(path) 
+    df = preprocess(df)
+    x = df.drop('diabetes', axis=1) #drop diabetes column 
+    y = df['diabetes'] #take the rest except this target column
+    return x, y
+
+# ----------------------------------------------------------------------------
+"""Build preprocessor -- handling missing values"""
+# ----------------------------------------------------------------------------
+def build_preprocessor():
+    numeric_features = ['bmi', 'HbA1c_level', 'blood_glucose_level']
+    categorical_features = ['hypertension', 'heart_disease', 'smoking_history', 'gender', 'age_group']
+
+    numeric_transformer = Pipeline([
+        ('imputer',SimpleImputer(strategy='median')), #fill NaNs with median
+        ('scaler',StandardScaler()), #afternimputation, each col is centered to mean 0 and scaled to unit variance
+        ])
+
+    categorical_transformer = Pipeline([
+        ('imputer', SimpleImputer(strategy='most_frequent')), #fill in with mode(appears most often)
+        ('onehot', OneHotEncoder(drop='first', handle_unknown='ignore')),
+    ])
+
+    preprocessor = ColumnTransformer([
+        ('num', numeric_transformer, numeric_features),
+        ('cat', categorical_transformer, categorical_features),
+    ])
+    return preprocessor
+
 
 # ----------------------------------------------------------------------------
 """Building model"""
 # ----------------------------------------------------------------------------
-def train_model(train_dir, val_dir, test_dir, output_dir='.'):
+def train_model(train_dir, val_dir):
     #Load data 
-    train_df = pd.read_csv(train_dir)
-    val_df = pd.read_csv(val_dir)
-    test_df = pd.read_csv(test_dir)
+    x_train, y_train = load_data(train_dir)
+    x_val, y_val = load_data(val_dir)
 
-    #Features are all comlumns impact to the target 
-    feature_cols = ['hypertension', 'heart_disease', 'smoking_history', 
-                'bmi', 'HbA1c_level', 'blood_glucose_level', 'gender', 'age_group']
+    ## Build pipeline: preprocessing + lr
+    preprocessor = build_preprocessor()
+    pipe = Pipeline([
+        ('preprocessor', preprocessor),
+        ('clf', LogisticRegression(solver = 'liblinear', max_iter=10000)),
+         ## solver = 'liblinear' for sparse matrices, or just means faster training
+        ])
 
-    #Preprocess data with imputation
- 
-
-
+    ##Hyperparameter grid for regularization strength & type
+    param_grid = {
+        'clf__C': [0.01, 0.1, 1, 10], 
+        ## c = 1/λ
+        #Picking this range: smaller C->larger λ, max 10 is to fit more flexibly (lower bias but potentially higher variance)
+        #regularization strength, means inverse of regularization strength
+        #Smaller -> Stronger regulirazaation, best trade-off bts under --over fitting
+        'clf__penalty': ['l1', 'l2'], #L1 -> L2
+    } 
+    ##minw[LogLoss(w)+λ∥w∥pp] --> p=1 gives L1 , p=2 gives L2, λ controls how strong the penalty is -> stiffer penalty -> smaller w
+    ## L1 is Lasso -- Penalizes weights linearly, tends to shirnk all weights toweard 0, but rarely make them exactly 0
+    ## L2 is Ridge -- Penalizes large weights quadratically, many weights turns exactly 0
+    
+    
+    
 # Main script
 if __name__ == '__main__':
     # ----------------------------------------------------------------------------
@@ -113,23 +134,19 @@ if __name__ == '__main__':
     print('-------------------------------------')  
     print('Running main script at', start_time_str, '\n')
     train_dir = '/Users/panda/Documents/APM/Testing/Train/Train_data.csv'
-    gt ='/Users/panda/Documents/APM/RiskScorePrediction /Data/diabetes_prediction_dataset.csv'
-    # df = pd.read_csv(gt)
-    df = pd.read_csv(train_dir)
-    # df = pd.read_csv(val_dir)
 
     # # #Display info of the tbl
-    print("All the categories in the table \n")
-    print(df.info())
     print('-------------------------------------')  
     print(" ")
     #Display missing values or having Nans
-    print("Missing values in the table \n", df.isnull().sum())
-    print('-------------------------------------') 
+    # print("Missing values in the table \n", df.isnull().sum())
 
 
-    train_dir = '/Users/panda/Documents/APM/Testing/Train/Train_data.csv'
-    val_dir = '/Users/panda/Documents/APM/Testing/Val/Val_data.csv'
-    output_dir = '/Users/panda/Documents/APM/RiskScorePrediction/Output'
+    train_dir = '/Users/panda/Documents/APM/RiskScorePrediction /Data/Train/Train_data.csv'
+    val_dir = '/Users/panda/Documents/APM/RiskScorePrediction /Data/Val/Val_data.csv'
+    # output_dir = '/Users/panda/Documents/APM/RiskScorePrediction/Output'
 
-#    train_model(train_dir,val_dir,output_dir)
+    model = train_model(train_dir, val_dir)
+    elapsed = time.time() - start_time
+    print(' ')
+    print(f'Training completed in {elapsed:.1f}s')
