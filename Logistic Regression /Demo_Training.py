@@ -7,7 +7,7 @@ Split into training, var,test sets (70,15,15 -- range can be fixed)
 
 import time
 import pandas as pd
-
+import os
 from sklearn.pipeline import Pipeline # To chain preprocessing and modeling steps
 from sklearn.compose import ColumnTransformer # ColumnTransformer is for handling different types of data
 from sklearn.impute import SimpleImputer # SimpleImputer is for handling missing values
@@ -16,8 +16,8 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV # GridSearchCV is for hyperparameter tuning
 from sklearn.metrics import accuracy_score, classification_report 
-
-
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from Splitdata import split_data
 
 ## Level of impact of diabetes are
 # Blood Glucose Level (most important), above 100 - 125 mg/dL is prediabetes, 126 is diabetes, less than 100 is normal.
@@ -37,26 +37,25 @@ from sklearn.metrics import accuracy_score, classification_report
 def preprocess(df):
     #Drop rows with missing values
     df = df.dropna() 
-
     #Drop duplicate
     df = df.drop_duplicates()
     print(f"Removed {df.duplicated().sum()} duplicate rows")
 
-    """Encoding -- gender, and smoking history since they are numerical data"""
-    le = LabelEncoder()
-    df['gender'] = le.fit_transform(df['gender']) #male/female -> 0/1
-    df['smoking_history'] = le.fit_transform(df['smoking_history']) # categories → numeric codes
-    
+    df['age'] = df['age'].astype(int)
     #Age bins 
     bins = [0, 20,40,60, 80] #Age range
     labels = ['0-20', '21-40', '41-60', '61+']
-    df['age_groups'] = pd.cut(df['age'], bins=bins, labels=labels)
+    df['age_group'] = pd.cut(df['age'], bins=bins, labels=labels)
     df = df.drop('age', axis = 1)
+
+    #Seperate features and target
+    x = df.drop('diabetes', axis=1) #drop diabetes column 
+    y = df['diabetes'] #take the rest except this target colum
 
     #Check for NaNs
     print("Missing values before imputation:\n", df.isna().sum())
     
-    return df
+    return x,y
 
 
 # ----------------------------------------------------------------------------
@@ -64,10 +63,7 @@ def preprocess(df):
 # ----------------------------------------------------------------------------
 def load_data(path):
     df = pd.read_csv(path) 
-    df = preprocess(df)
-    x = df.drop('diabetes', axis=1) #drop diabetes column 
-    y = df['diabetes'] #take the rest except this target column
-    return x, y
+    return  preprocess(df)
 
 # ----------------------------------------------------------------------------
 """Build preprocessor -- handling missing values"""
@@ -86,15 +82,17 @@ def build_preprocessor():
         ('onehot', OneHotEncoder(drop='first', handle_unknown='ignore')),
     ])
 
-    preprocessor = ColumnTransformer([
+    return ColumnTransformer([
         ('num', numeric_transformer, numeric_features),
         ('cat', categorical_transformer, categorical_features),
     ])
-    return preprocessor
-
+    
 
 # ----------------------------------------------------------------------------
-"""Building model"""
+"""Building model -- train multiple classifiers via GridSearchCV
+- Random Forest (tune n_estimators, max_depth)
+- Gradient Boosting (tune n_estimators, learning_rate, max_depth)
+"""
 # ----------------------------------------------------------------------------
 def train_model(train_dir, val_dir):
     #Load data 
@@ -109,20 +107,44 @@ def train_model(train_dir, val_dir):
          ## solver = 'liblinear' for sparse matrices, or just means faster training
         ])
 
-    ##Hyperparameter grid for regularization strength & type
-    param_grid = {
-        'clf__C': [0.01, 0.1, 1, 10], 
-        ## c = 1/λ
+    ##Hyperparameter grid for different algorithms
+    ## c = 1/λ
         #Picking this range: smaller C->larger λ, max 10 is to fit more flexibly (lower bias but potentially higher variance)
         #regularization strength, means inverse of regularization strength
         #Smaller -> Stronger regulirazaation, best trade-off bts under --over fitting
-        'clf__penalty': ['l1', 'l2'], #L1 -> L2
-    } 
-    ##minw[LogLoss(w)+λ∥w∥pp] --> p=1 gives L1 , p=2 gives L2, λ controls how strong the penalty is -> stiffer penalty -> smaller w
-    ## L1 is Lasso -- Penalizes weights linearly, tends to shirnk all weights toweard 0, but rarely make them exactly 0
-    ## L2 is Ridge -- Penalizes large weights quadratically, many weights turns exactly 0
-    
-    
+
+        ##minw[LogLoss(w)+λ∥w∥pp] --> p=1 gives L1 , p=2 gives L2, λ controls how strong the penalty is -> stiffer penalty -> smaller w
+        ## L1 is Lasso -- Penalizes weights linearly, tends to shirnk all weights toweard 0, but rarely make them exactly 0
+        ## L2 is Ridge -- Penalizes large weights quadratically, many weights turns exactly 0
+    param_grid = [{
+        'clf': [LogisticRegression(solver='liblinear', max_iter=10000)],
+        'clf__C': [0.01, 0.1, 1, 10], 
+        'clf__penalty': ['l1', 'l2'],
+            },
+        ##Random Forest
+        {
+            'clf': [RandomForestClassifier(random_state=42)],
+            'clf__n_estimators': [ 100,200 ],
+            'clf__max_depth': [None,5,10]
+        },
+        ##Gradient Boosting Classifier
+        {
+            'clf': [GradientBoostingClassifier(random_state=42)],
+            'clf__n_estimators': [100, 200],
+            'clf__learning_rate': [0.01, 0.1],
+            'clf__max_depth': [3, 5]
+        }]
+
+    ##Grid search with 5-fold cv
+    grid = GridSearchCV(pipe, param_grid, cv=5, scoring='accuracy', n_jobs=-1)
+    grid.fit(x_train, y_train)
+
+    best = grid.best_estimator_
+    print('----------------------------------------------')
+    print('Best parameters:', grid.best_params_)
+    print('Training accuracy:', best.score(x_train, y_train))
+    print('Validation accuracy:', best.score(x_val, y_val))
+    return best
     
 # Main script
 if __name__ == '__main__':
@@ -133,7 +155,6 @@ if __name__ == '__main__':
     start_time_str = time.strftime("%Y%m%d_%H%M", time.localtime(start_time))
     print('-------------------------------------')  
     print('Running main script at', start_time_str, '\n')
-    train_dir = '/Users/panda/Documents/APM/Testing/Train/Train_data.csv'
 
     # # #Display info of the tbl
     print('-------------------------------------')  
@@ -141,7 +162,7 @@ if __name__ == '__main__':
     #Display missing values or having Nans
     # print("Missing values in the table \n", df.isnull().sum())
 
-
+    """Path for training"""
     train_dir = '/Users/panda/Documents/APM/RiskScorePrediction /Data/Train/Train_data.csv'
     val_dir = '/Users/panda/Documents/APM/RiskScorePrediction /Data/Val/Val_data.csv'
     # output_dir = '/Users/panda/Documents/APM/RiskScorePrediction/Output'
